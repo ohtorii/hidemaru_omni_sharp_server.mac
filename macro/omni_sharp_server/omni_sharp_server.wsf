@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<!--
+//  	omni_sharp_server.wsf
+//  	コマンドラインから OmniSharpServer と通信する。
+//  	by ohtorii  2015/06/13
+//
+//  	Usage:
+//  		cscript //U //nologo omni_sharp_server.wsf port line column buffer filename wordToComplete
+-->
+<package>
+<job>
+<script language="JScript" src="oauth.js"></script>
+<script language="JScript"><![CDATA[
+
+WScript.Quit(main());
+
+function main() {
+	var arg_port 			= WScript.Arguments(0);
+	var arg_line 			= WScript.Arguments(1);
+	var arg_column 			= WScript.Arguments(2);
+	var arg_buffer 			= WScript.Arguments(3);
+	var arg_filename 		= WScript.Arguments(4);
+	var arg_wordToComplete	= WScript.Arguments(5);
+	
+	/*WScript.StdOut.WriteLine("============ args ============");
+	WScript.StdOut.WriteLine("port="			+ arg_port);
+	WScript.StdOut.WriteLine("line="			+ arg_line		);
+	WScript.StdOut.WriteLine("column="			+ arg_column );
+	WScript.StdOut.WriteLine("buffer="			+ arg_buffer 	);
+	WScript.StdOut.WriteLine("filename="		+ arg_filename	);
+	WScript.StdOut.WriteLine("wordToComplete="	+ arg_wordToComplete );
+	*/
+	
+	arg_buffer = arg_buffer.replace(/\\n/g, '\n');
+	arg_buffer = arg_buffer.replace(/\\r/g, '\r');
+	arg_buffer = arg_buffer.replace(/\\t/g, '\t');
+	arg_buffer = arg_buffer.replace(/\\"/g, '"');
+	
+	var url = "http://localhost:" + arg_port + "/autocomplete";
+	var params = {
+		line			: parseInt(arg_line,10),
+		column			: parseInt(arg_column,10),
+		WantMethodHeader: "true",
+		buffer			: arg_buffer,
+		filename		: arg_filename,
+		WantSnippet		: "true",
+		WantReturnType	: "true",
+		wordToComplete	: arg_wordToComplete
+	};
+
+	
+	/*var url = "http://localhost:52000/autocomplete";
+	var params = {
+		line: 10,
+		column: 29,
+		WantMethodHeader: "true",
+		buffer: "using System;\nusing System.Collections.Generic;\n\nnamespace ConsoleApplication1\n{\n    class Program\n    {\n        static void Main(string[] args)\n        {            \n            System.Console.w\n        }\n    }\n}\n",
+		filename: "C:\\Users\\hoge\\Documents\\develop\\test\\test_project\\ConsoleApplication1\\ConsoleApplication1\\Program.cs",
+		WantSnippet: "true",
+		WantReturnType: "true",
+		wordToComplete: "w"
+	};*/
+	
+	/*WScript.StdOut.WriteLine("==== 比較 ====");
+	WScript.StdOut.WriteLine(arg_buffer);
+	WScript.StdOut.WriteLine(params["buffer"]);*/
+	
+	return Session( url, params, function(res) {
+		//WScript.StdOut.WriteLine("@")
+		for (var i in res.obj) {
+			var o = res.obj[i];
+			WScript.StdOut.WriteLine(o["CompletionText"]);
+			//WScript.StdOut.WriteLine(o["DisplayText"]);
+		}
+	});
+}
+
+function Session(url, params, yield){
+	try{
+		var res = callApi(url, params);
+		yield(res);
+		return 0;
+	} catch (e) {
+		if (e.number == 0) {
+			return 0;
+		}
+		WScript.StdErr.WriteLine(e.description);
+		return e.number;
+	}
+}
+
+
+
+function callApi(url, params){
+	var res = Http(url, params);
+	
+	//生のレスポンスをダンプ出力。
+	//WScript.StdOut.WriteLine(res.text);
+
+	res.obj = eval(res.text);
+	//res.obj = (new Function("return " + res.text))();
+
+	if (res.status != 200) {
+		throw new Error(2, res.status + " " + res.obj.error);
+	}
+	return res;
+}
+
+
+function Http(url, params){
+	var res = {
+		status : null,
+		allheaders : null,
+		text : null,
+		obj : null
+	};
+
+	http = getAjax();
+	try{
+		http.open("POST", url, false);
+		//http.setRequestHeader("Authorization", auth);
+		http.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+		http.send(OAuth.formEncode(params));
+
+		res.status = http.status;
+		res.allheaders = http.getAllResponseHeaders();
+		res.text = http.responseText;
+		res.text=res.text;
+		return res;
+	} catch(e) {
+		if (e.number == -2147024891 /* 0x80070005 */ ) {
+			e.description = "401 " + e.description;
+		} else {
+			e.description = "499 " + e.description;
+		}
+		throw e;
+	}
+}
+
+
+function getAjax() {
+	try {
+		return new ActiveXObject("Msxml2.XMLHTTP");
+	} catch(e) {
+		try{
+			return new ActiveXObject("Microsoft.XMLHTTP");
+		} catch(e) {
+			throw e;
+		}
+	}
+}
+
+
+]]></script>
+</job>
+</package>

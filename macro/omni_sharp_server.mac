@@ -1,0 +1,344 @@
+/*omni sharp server を使用する秀丸マクロ。
+by ohtorii  2015/06/13
+
+残作業
+・サーバの起動方法を考える。現在は port=5200 で手動で起動している。
+・サーバを起動したままにする。現在は秀丸エディタが自動的に終了させている。
+・カーソルのcolumn位置がずれるため、正しい補完結果を取得できない。
+*/
+
+
+
+
+////////////////////////////////////////////////////////////////////////////
+//グローバル変数（設定）
+////////////////////////////////////////////////////////////////////////////
+#g_OmniSharpPortBegin=52000;
+#g_OmniSharpPortEnd  =53000;
+
+
+
+////////////////////////////////////////////////////////////////////////////
+//グローバル変数（内部利用）
+////////////////////////////////////////////////////////////////////////////
+$g_OmniSharpExe="";
+$g_SpawnServerBat="";
+$g_OmniSharpWsf="";
+$g_server_port="";
+
+
+call start;
+endmacro str(result);
+
+////////////////////////////////////////////////////////////////////////////
+//処理
+////////////////////////////////////////////////////////////////////////////
+start:
+	$$old_searchbuffer = searchbuffer;
+	##old_searchoption = searchoption;
+
+	call load_dengaku;
+	if(! ##return){
+		return false;
+	}
+	call LoadHMJRE;
+	if(! ##return){
+		return false;
+	}
+
+	call main;
+	##ret = result;
+
+	setsearch $$old_searchbuffer, ##old_searchoption;
+	freedll;
+	return ##ret;
+
+
+main:
+	call init_global_variable();
+	if(##return == 0){
+		return false;
+	}
+	call get_word_to_complete;
+	$$word_to_complete=$$return;
+	if(strlen($$word_to_complete)==0){
+		//補完する単語が見つからない。
+		message "補完する単語が見つからない。";
+		return true;
+	}
+
+	call get_text_all;
+	$$text = $$return;
+	if(strlen($$text)==0){
+		return true;
+	}
+
+	//
+	//サーバのポート番号を取得する。
+	//
+if(1){
+	/*サーバの起動方法は後で考える
+	call spawn_server;
+	if(! ##return){
+		return false;
+	}
+	*/
+	$g_server_port = str(#g_OmniSharpPortBegin);
+}else{
+	call get_server_port();
+	if(##return==0){
+		//サーバを起動する
+		call spawn_server;
+		if(##retuern==0){
+			return false;
+		}
+	}else{
+		//サーバは起動済
+		$g_server_port = str(##return);
+	}
+}
+
+	call make_complete_list $$text, $$word_to_complete, str(column), str(lineno), filename;
+	return true;
+
+
+init_global_variable:
+	$g_OmniSharpExe = currentmacrodirectory+"\\omni_sharp_server\\bin\\OmniSharp.exe";
+	if(! existfile($g_OmniSharpExe)){
+		message "ファイルが存在しません。\nfile=" + $g_OmniSharpExe;
+		return false;
+	}
+	
+	$g_SpawnServerBat=currentmacrodirectory+"\\omni_sharp_server\\spawn_server.bat";
+	if(! existfile($g_SpawnServerBat)){
+		message "ファイルが存在しません。\nfile=" + $g_SpawnServerBat;
+		return false;
+	}
+	
+	$g_OmniSharpWsf = currentmacrodirectory+"\\omni_sharp_server\\omni_sharp_server.wsf";
+	if(! existfile($g_OmniSharpWsf)){
+		message "ファイルが存在しません。\nfile=" + $g_OmniSharpWsf;
+		return false;
+	}
+
+	return true;
+
+load_dengaku:
+	//田楽ＤＬＬをロード
+	$$path = hidemarudir + "\\DengakuDLL.dll";
+	loaddll ( $$path );
+	if ( !result ){
+		message "田楽ＤＬＬをロードできませんでした。\nfile=" + $$path;
+		return false;
+	}
+	//
+	//田楽ＤＬＬのバージョンチェック
+	$dllver = leftstr ( dllfuncstr("GETVERSION") ,1 ) + rightstr ( dllfuncstr("GETVERSION") ,2 );
+	if ( val ( $dllver ) <= 204 ) {
+		message "このマクロの実行には Ver2.04 以降の田楽ＤＬＬが必要です。";
+		freedll;
+		return false;
+	}
+	return true;
+
+LoadHMJRE:
+	##n = dllfunc("HMJRE_LOAD","");
+	if(! ##n){
+		message "HMJRE.DLL が見つかりません";
+		return false;
+	}
+	return ##n;
+
+get_server_port:
+	$$port = getstaticvariable("omni_sharp_server#local_port",false);
+	if($$port==""){
+		return 0;
+	}
+	return val($$port);
+
+
+new_server_port:
+	/*秀丸を初めて起動するときはポート番号を開始位置に戻す。
+	*/
+
+
+	/*サーバのポートを新規取得する。*/
+	$$port = getstaticvariable("omni_sharp_server#global_port",true);
+	if($$port == 0){
+		//初めて起動する。
+		setstaticvariable "omni_sharp_server#global_port",#g_OmniSharpPortBegin,true;
+		return #g_OmniSharpPortBegin;
+	}
+	/*次回起動時のポート番号を設定する。*/
+	setstaticvariable "omni_sharp_server#global_port",##port+1,true
+	return val($$port);
+
+
+/*spawn_server:
+	call surround "\"", $g_OmniSharpExe;
+	$$exe = $$return;
+
+	//call new_server_port;
+	//$$port = str(##return);
+
+	$$port = str(#g_OmniSharpPortBegin);
+	$$cmd = $$exe + " " + "--port=" + $$port;
+	return ;
+
+	run $$cmd;
+	$g_server_port=$$port;
+	return true;
+*/
+spawn_server:
+	call surround "\"", $g_SpawnServerBat;
+	$$exe = $$return;
+
+	//call new_server_port;
+	//$$port = str(##return);
+
+	$$port = str(#g_OmniSharpPortBegin);
+	$$cmd = $$exe + " " + "--port=" + $$port;
+	$g_server_port=$$port;
+	run $$cmd;
+	if(! result){
+		message "サーバの起動に失敗しました";
+		return false;
+	}
+	return result;
+	
+replace_text:
+	$$pattern 	= $$1;
+	$$replace 	= $$2;
+	$$text		= $$3;
+	$$s = dllfuncstr("HMJRE_REPLACE_REGULAR_NO_CASE_SENSE", $$pattern, $$text, 0, $$replace, 1);
+	if(result==0){
+		message "dllfuncstr の呼び出しに失敗しました。";
+		return "";
+	}
+	if(strlen($$s)==0){
+		//置換が発生しなかった
+		return $$text;
+	}
+	return $$s;
+
+/*ファイル内のテキストを全て取得する。
+*/
+get_text_all:
+	##old_lineno = lineno;
+	##old_column = column;
+	selectall;
+	$$text = gettext(seltopx, seltopy, selendx, selendy);
+	movetolineno ##old_column+1, ##old_lineno;
+
+	//\ -> \\
+	call replace_text "\\", "\\\\", $$text;
+	$$text = $$return;
+
+	//" -> \"
+	call replace_text "\"", "\\\\\"", $$text;
+	$$text = $$return;
+
+	call replace_text "\\n", "\\\\n", $$text;
+	$$text = $$return;
+
+	call replace_text "\\r", "\\\\r", $$text;
+	$$text = $$return;
+
+	call replace_text "\\t", "\\\\t", $$text;
+	$$text = $$return;
+
+	return $$text;
+
+/*補完する文字列を取得する。
+
+例(|はカーソル位置)：
+System.Con|
+-> "Con"
+*/
+get_word_to_complete:
+	//カーソルの左側にある文字(アルファベット、数値)を取得する。
+	if(selecting){
+		//選択文字をそのまま使用する
+		$$text = gettext(seltopx, seltopy, selendx, selendy);
+		return $$text;
+	}
+	
+	##old_lineno = lineno;
+	##old_column = column;
+	
+	//beginsel;
+	
+	selectword;
+	$$text = gettext(seltopx, seltopy, selendx, selendy);
+
+	movetolineno ##old_column+1, ##old_lineno;
+	return $$text;
+
+/*
+abc -> "abc"
+*/
+surround:
+	return $$1 + $$2 + $$1;
+
+runex_omniserer:
+	$$text				=$$1;
+	$$word_to_complete	=$$2;
+	$$column 			=$$3;
+	$$lineno			=$$4;
+	$$filename			=$$5;
+	
+	call surround "\"", $g_OmniSharpWsf;
+	$$exe = $$return;
+
+	call surround "\"", $$filename;
+	$$filename = $$return;
+
+	call surround "\"", $$text;
+	$$text = $$return;
+
+	$$cmd = "cscript //nologo"	+
+			" " +$$exe 				+
+			" " + $g_server_port 	+
+			" " + $$lineno			+ 
+			" " + $$column			+
+			" " + $$text 			+
+			" " + $$filename 		+
+			" " + $$word_to_complete;
+	insert $$cmd;
+	runex	$$cmd
+			, 1
+			, 0,""			/*標準入力*/
+			, 5,""			/*標準出力*/
+			, 5,""			/*標準エラー*/
+			, 1,""			/*作業フォルダ*/
+			, 2				/*非表示*/
+			, 1
+			, 0				/*ANSI*/
+			;
+	return result;
+
+/*サーバから補完リストを取得する。
+*/
+make_complete_list:
+	$$text				=$$1;
+	$$word_to_complete	=$$2;
+	$$column 			=$$3;
+	$$lineno			=$$4;
+	$$filename			=$$5;
+
+	##old_hidemaru = hidemaruhandle(0);
+	newfile ;
+	//openfile "/h",noaddhist;
+	##cur_hidemaru = hidemaruhandle(0);
+
+	//非表示の秀丸へ実行結果を出力する。
+	call runex_omniserer $$text, $$word_to_complete, $$column, $$lineno, $$filename;
+	if(##return==0){
+		message "失敗";
+		return false;
+	}
+
+	//setactivehidemaru ##old_hidemaru;
+	//closehidemaruforced ##cur_hidemaru;
+
+	return;
